@@ -194,6 +194,68 @@ impl Profile {
     }
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub struct FeatureFlags {
+    #[serde(default = "default_true")]
+    pub gyro_to_mouse: bool,
+    #[serde(default = "default_true")]
+    pub touchpad_to_mouse: bool,
+    #[serde(default = "default_true")]
+    pub adaptive_triggers: bool,
+    #[serde(default = "default_true")]
+    pub turbo: bool,
+    #[serde(default = "default_true")]
+    pub shift_layer: bool,
+    #[serde(default = "default_true")]
+    pub auto_profile_switching: bool,
+}
+
+fn default_true() -> bool {
+    true
+}
+
+impl Default for FeatureFlags {
+    fn default() -> Self {
+        Self {
+            gyro_to_mouse: true,
+            touchpad_to_mouse: true,
+            adaptive_triggers: true,
+            turbo: true,
+            shift_layer: true,
+            auto_profile_switching: true,
+        }
+    }
+}
+
+pub fn strip_disabled_features(profile: &Profile, flags: &FeatureFlags) -> Profile {
+    let mut stripped = profile.clone();
+
+    if !flags.gyro_to_mouse {
+        stripped.gyro_mouse_sensitivity = None;
+        stripped.gyro_toggle_button = None;
+    }
+
+    if !flags.touchpad_to_mouse {
+        stripped.touch_mouse_sensitivity = None;
+    }
+
+    if !flags.adaptive_triggers {
+        stripped.left_trigger = TriggerEffect::Off;
+        stripped.right_trigger = TriggerEffect::Off;
+    }
+
+    if !flags.turbo {
+        stripped.turbo_buttons.clear();
+    }
+
+    if !flags.shift_layer {
+        stripped.shift_button = None;
+        stripped.shift_bindings.clear();
+    }
+
+    stripped
+}
+
 pub fn outputs_for(profile: &Profile, pressed: ButtonMask, released: ButtonMask) -> Vec<Output> {
     let mut outputs = Vec::new();
 
@@ -1216,5 +1278,136 @@ mod tests {
 
         assert_eq!(profile.shift_button, None);
         assert!(profile.shift_bindings.is_empty());
+    }
+
+    fn feature_test_profile() -> Profile {
+        use crate::types::pad::L1;
+
+        Profile::named("test")
+            .with_shift_button(L1)
+            .bind("Circle", Binding::Key { code: 0x1B })
+            .bind_shift("Circle", Binding::Key { code: 0x20 })
+    }
+
+    #[test]
+    fn a_new_feature_flags_has_everything_on() {
+        let flags = FeatureFlags::default();
+
+        assert!(flags.gyro_to_mouse);
+        assert!(flags.touchpad_to_mouse);
+        assert!(flags.adaptive_triggers);
+        assert!(flags.turbo);
+        assert!(flags.shift_layer);
+        assert!(flags.auto_profile_switching);
+    }
+
+    #[test]
+    fn with_everything_on_stripping_changes_nothing() {
+        let profile = feature_test_profile()
+            .with_gyro_mouse(0.2)
+            .with_touch_mouse(1.0)
+            .with_triggers(TriggerEffect::Rigid { force: 100 }, TriggerEffect::Off)
+            .with_turbo("Cross")
+            .with_turbo_interval_ms(80);
+
+        let stripped = strip_disabled_features(&profile, &FeatureFlags::default());
+
+        assert_eq!(stripped, profile);
+    }
+
+    #[test]
+    fn turning_gyro_off_clears_the_sensitivity_but_leaves_the_rest() {
+        let profile = feature_test_profile()
+            .with_gyro_mouse(0.2)
+            .with_turbo("Cross");
+        let flags = FeatureFlags {
+            gyro_to_mouse: false,
+            ..FeatureFlags::default()
+        };
+
+        let stripped = strip_disabled_features(&profile, &flags);
+
+        assert_eq!(stripped.gyro_mouse_sensitivity, None);
+        assert!(stripped.turbo_buttons.contains("Cross"));
+    }
+
+    #[test]
+    fn turning_touch_off_clears_touch_sensitivity_only() {
+        let profile = feature_test_profile().with_touch_mouse(1.0);
+        let flags = FeatureFlags {
+            touchpad_to_mouse: false,
+            ..FeatureFlags::default()
+        };
+
+        let stripped = strip_disabled_features(&profile, &flags);
+
+        assert_eq!(stripped.touch_mouse_sensitivity, None);
+    }
+
+    #[test]
+    fn turning_adaptive_triggers_off_resets_both_triggers_to_off() {
+        let profile = feature_test_profile().with_triggers(
+            TriggerEffect::Rigid { force: 200 },
+            TriggerEffect::Pulse {
+                start: 10,
+                force: 90,
+            },
+        );
+        let flags = FeatureFlags {
+            adaptive_triggers: false,
+            ..FeatureFlags::default()
+        };
+
+        let stripped = strip_disabled_features(&profile, &flags);
+
+        assert_eq!(stripped.left_trigger, TriggerEffect::Off);
+        assert_eq!(stripped.right_trigger, TriggerEffect::Off);
+    }
+
+    #[test]
+    fn turning_turbo_off_empties_the_turbo_button_set() {
+        let profile = feature_test_profile()
+            .with_turbo("Cross")
+            .with_turbo("Circle");
+        let flags = FeatureFlags {
+            turbo: false,
+            ..FeatureFlags::default()
+        };
+
+        let stripped = strip_disabled_features(&profile, &flags);
+
+        assert!(stripped.turbo_buttons.is_empty());
+    }
+
+    #[test]
+    fn turning_shift_off_clears_the_shift_button_and_its_bindings() {
+        let profile = feature_test_profile();
+        let flags = FeatureFlags {
+            shift_layer: false,
+            ..FeatureFlags::default()
+        };
+
+        let stripped = strip_disabled_features(&profile, &flags);
+
+        assert_eq!(stripped.shift_button, None);
+        assert!(stripped.shift_bindings.is_empty());
+    }
+
+    #[test]
+    fn ordinary_bindings_are_never_touched_by_any_toggle() {
+        let profile = feature_test_profile();
+        let flags = FeatureFlags {
+            gyro_to_mouse: false,
+            touchpad_to_mouse: false,
+            adaptive_triggers: false,
+            turbo: false,
+            shift_layer: false,
+            auto_profile_switching: false,
+        };
+
+        let stripped = strip_disabled_features(&profile, &flags);
+
+        assert_eq!(stripped.bindings, profile.bindings);
+        assert_eq!(stripped.name, profile.name);
     }
 }
