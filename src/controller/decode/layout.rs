@@ -143,7 +143,7 @@ impl Layout {
     }
 }
 
-pub const BLUETOOTH_HEADER_LEN: usize = 2;
+pub const BLUETOOTH_HEADER_LEN: usize = 1;
 
 pub const USB_INPUT_REPORT_LEN: usize = 64;
 
@@ -213,7 +213,7 @@ mod tests {
     }
 
     #[test]
-    fn bluetooth_full_shifts_every_offset_by_the_two_byte_header() {
+    fn bluetooth_full_shifts_every_offset_by_the_header_length() {
         let usb = layout_for(DeviceKind::DualSense, Transport::Usb);
         let bt = layout_for(DeviceKind::DualSense, Transport::BluetoothFull);
 

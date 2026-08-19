@@ -474,11 +474,11 @@ mod tests {
 
         let mut bt = vec![0u8; 78];
         bt[0] = 0x31;
+        bt[2] = 128;
         bt[3] = 128;
         bt[4] = 128;
         bt[5] = 128;
-        bt[6] = 128;
-        bt[10] = 0x08 | (1 << 5);
+        bt[9] = 0x08 | (1 << 5);
 
         let (_, from_usb) = decode(DeviceKind::DualSense, 64, &usb).unwrap();
         let (transport, from_bt) = decode(DeviceKind::DualSense, 64, &bt).unwrap();

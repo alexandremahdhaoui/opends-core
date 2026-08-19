@@ -77,3 +77,51 @@ fn the_counter_byte_would_have_read_as_a_button_before_the_fix() {
         "bit 4 is what FnL used to read"
     );
 }
+
+#[test]
+fn a_real_bluetooth_full_dualsense_at_rest_decodes_to_no_buttons_pressed() {
+    for fixture in [
+        "dualsense-bt-full-neutral-1.hex",
+        "dualsense-bt-full-neutral-2.hex",
+    ] {
+        let report = load(fixture);
+
+        let (transport, state) = decode::decode(DeviceKind::DualSense, 78, &report).unwrap();
+
+        assert_eq!(transport, Transport::BluetoothFull);
+        assert_eq!(
+            state.buttons,
+            0,
+            "{fixture}: held {:?}, this is the header-length-off-by-one bug",
+            state.held_names()
+        );
+    }
+}
+
+#[test]
+fn a_real_bluetooth_full_dualsense_at_rest_has_sticks_near_centre_and_motion_near_zero() {
+    for fixture in [
+        "dualsense-bt-full-neutral-1.hex",
+        "dualsense-bt-full-neutral-2.hex",
+    ] {
+        let report = load(fixture);
+
+        let (_, state) = decode::decode(DeviceKind::DualSense, 78, &report).unwrap();
+        let (lx, ly) = state.left_stick.normalised();
+        let (rx, ry) = state.right_stick.normalised();
+
+        assert!(lx.abs() < 0.05, "{fixture}: left stick x drifted to {lx}");
+        assert!(ly.abs() < 0.05, "{fixture}: left stick y drifted to {ly}");
+        assert!(rx.abs() < 0.05, "{fixture}: right stick x drifted to {rx}");
+        assert!(
+            ry.abs() < 0.05,
+            "{fixture}: right stick y drifted to {ry}, this is the pinned-RY bug"
+        );
+
+        assert!(
+            state.motion.gyro_yaw.abs() < 50,
+            "{fixture}: gyro yaw at rest read {}",
+            state.motion.gyro_yaw
+        );
+    }
+}
