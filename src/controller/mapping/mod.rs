@@ -13,7 +13,7 @@
 // limitations under the License.
 
 use serde::{Deserialize, Serialize};
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
 
 use crate::controller::output::TriggerEffect;
 use crate::types::pad::{parse_button_name, ButtonMask, PadState, Touch, ALL_BUTTONS};
@@ -54,7 +54,11 @@ pub enum Output {
     MouseMove { dx: i32, dy: i32 },
 }
 
-#[derive(Debug, Clone, PartialEq, Default, Serialize, Deserialize)]
+fn default_turbo_interval_ms() -> u32 {
+    100
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct Profile {
     pub name: String,
     pub bindings: BTreeMap<String, Binding>,
@@ -66,6 +70,16 @@ pub struct Profile {
     pub left_trigger: TriggerEffect,
     #[serde(default)]
     pub right_trigger: TriggerEffect,
+    #[serde(default)]
+    pub turbo_buttons: BTreeSet<String>,
+    #[serde(default = "default_turbo_interval_ms")]
+    pub turbo_interval_ms: u32,
+}
+
+impl Default for Profile {
+    fn default() -> Self {
+        Self::named("")
+    }
 }
 
 impl Profile {
@@ -79,6 +93,8 @@ impl Profile {
             stick_dead_zone: None,
             left_trigger: TriggerEffect::Off,
             right_trigger: TriggerEffect::Off,
+            turbo_buttons: BTreeSet::new(),
+            turbo_interval_ms: default_turbo_interval_ms(),
         }
     }
 
@@ -105,6 +121,16 @@ impl Profile {
     pub fn with_triggers(mut self, left: TriggerEffect, right: TriggerEffect) -> Self {
         self.left_trigger = left;
         self.right_trigger = right;
+        self
+    }
+
+    pub fn with_turbo(mut self, button: &str) -> Self {
+        self.turbo_buttons.insert(button.to_string());
+        self
+    }
+
+    pub fn with_turbo_interval_ms(mut self, interval_ms: u32) -> Self {
+        self.turbo_interval_ms = interval_ms;
         self
     }
 
@@ -285,6 +311,12 @@ pub fn steps_due_by(steps: &[TimedStep], elapsed_ms: u64) -> usize {
     }
 
     due
+}
+
+pub fn turbo_pressed_phase(elapsed_ms: u64, interval_ms: u32) -> bool {
+    let half_period = u64::from(interval_ms.max(2)) / 2;
+
+    (elapsed_ms / half_period).is_multiple_of(2)
 }
 
 #[cfg(test)]
@@ -1017,5 +1049,63 @@ mod tests {
 
         assert!(outputs_for(&profile, CIRCLE, 0).is_empty());
         assert!(outputs_for(&profile, 0, CIRCLE).is_empty());
+    }
+
+    #[test]
+    fn a_new_profile_has_no_turbo_buttons_and_a_sane_default_interval() {
+        let profile = Profile::named("test");
+
+        assert!(profile.turbo_buttons.is_empty());
+        assert_eq!(profile.turbo_interval_ms, 100);
+    }
+
+    #[test]
+    fn turbo_starts_in_the_pressed_phase() {
+        assert!(turbo_pressed_phase(0, 100));
+    }
+
+    #[test]
+    fn turbo_flips_to_released_at_half_the_interval() {
+        assert!(!turbo_pressed_phase(50, 100));
+    }
+
+    #[test]
+    fn turbo_flips_back_to_pressed_a_full_interval_in() {
+        assert!(turbo_pressed_phase(100, 100));
+    }
+
+    #[test]
+    fn turbo_keeps_alternating_every_half_interval() {
+        assert!(!turbo_pressed_phase(150, 100));
+        assert!(turbo_pressed_phase(200, 100));
+    }
+
+    #[test]
+    fn turbo_never_divides_by_zero_on_a_zero_interval() {
+        assert!(turbo_pressed_phase(0, 0));
+        assert!(!turbo_pressed_phase(1, 0));
+    }
+
+    #[test]
+    fn a_profile_carrying_turbo_buttons_round_trips_through_json() {
+        let profile = Profile::named("round trip")
+            .with_turbo("Cross")
+            .with_turbo("Circle")
+            .with_turbo_interval_ms(40);
+
+        let text = serde_json::to_string(&profile).unwrap();
+        let back: Profile = serde_json::from_str(&text).unwrap();
+
+        assert_eq!(back, profile);
+    }
+
+    #[test]
+    fn a_profile_json_written_before_turbo_existed_still_parses() {
+        let text = r#"{"name":"old","bindings":{}}"#;
+
+        let profile: Profile = serde_json::from_str(text).unwrap();
+
+        assert!(profile.turbo_buttons.is_empty());
+        assert_eq!(profile.turbo_interval_ms, 100);
     }
 }
