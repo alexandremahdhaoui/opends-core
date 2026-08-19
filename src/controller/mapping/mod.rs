@@ -74,6 +74,10 @@ pub struct Profile {
     pub turbo_buttons: BTreeSet<String>,
     #[serde(default = "default_turbo_interval_ms")]
     pub turbo_interval_ms: u32,
+    #[serde(default)]
+    pub shift_button: Option<ButtonMask>,
+    #[serde(default)]
+    pub shift_bindings: BTreeMap<String, Binding>,
 }
 
 impl Default for Profile {
@@ -95,6 +99,8 @@ impl Profile {
             right_trigger: TriggerEffect::Off,
             turbo_buttons: BTreeSet::new(),
             turbo_interval_ms: default_turbo_interval_ms(),
+            shift_button: None,
+            shift_bindings: BTreeMap::new(),
         }
     }
 
@@ -137,6 +143,32 @@ impl Profile {
     pub fn bind(mut self, button: &str, binding: Binding) -> Self {
         self.bindings.insert(button.to_string(), binding);
         self
+    }
+
+    pub fn with_shift_button(mut self, button: ButtonMask) -> Self {
+        self.shift_button = Some(button);
+        self
+    }
+
+    pub fn bind_shift(mut self, button: &str, binding: Binding) -> Self {
+        self.shift_bindings.insert(button.to_string(), binding);
+        self
+    }
+
+    pub fn shift_binding_for(&self, button: ButtonMask, shift_active: bool) -> Option<&Binding> {
+        if shift_active {
+            if let Some(name) = ALL_BUTTONS
+                .iter()
+                .find(|(bit, _)| *bit == button)
+                .map(|(_, name)| *name)
+            {
+                if let Some(binding) = self.shift_bindings.get(name) {
+                    return Some(binding);
+                }
+            }
+        }
+
+        self.binding_for(button)
     }
 
     pub fn binding_for(&self, button: ButtonMask) -> Option<&Binding> {
@@ -186,7 +218,7 @@ fn push_press(profile: &Profile, button: ButtonMask, outputs: &mut Vec<Output>) 
     }
 }
 
-fn push_press_binding(binding: &Binding, outputs: &mut Vec<Output>) {
+pub fn push_press_binding(binding: &Binding, outputs: &mut Vec<Output>) {
     match binding {
         Binding::Key { code } => outputs.push(Output::KeyDown(*code)),
         Binding::Mouse { button } => outputs.push(Output::MouseDown(*button)),
@@ -208,7 +240,7 @@ fn push_release(profile: &Profile, button: ButtonMask, outputs: &mut Vec<Output>
     }
 }
 
-fn push_release_binding(binding: &Binding, outputs: &mut Vec<Output>) {
+pub fn push_release_binding(binding: &Binding, outputs: &mut Vec<Output>) {
     match binding {
         Binding::Key { code } => outputs.push(Output::KeyUp(*code)),
         Binding::Mouse { button } => outputs.push(Output::MouseUp(*button)),
@@ -1107,5 +1139,82 @@ mod tests {
 
         assert!(profile.turbo_buttons.is_empty());
         assert_eq!(profile.turbo_interval_ms, 100);
+    }
+
+    #[test]
+    fn a_new_profile_has_no_shift_button_and_no_shift_bindings() {
+        let profile = Profile::named("test");
+
+        assert_eq!(profile.shift_button, None);
+        assert!(profile.shift_bindings.is_empty());
+    }
+
+    #[test]
+    fn holding_the_shift_button_uses_the_shift_binding_when_one_exists() {
+        use crate::types::pad::{CIRCLE, L1};
+
+        let profile = Profile::named("test")
+            .with_shift_button(L1)
+            .bind("Circle", Binding::Key { code: 0x1B })
+            .bind_shift("Circle", Binding::Key { code: 0x20 });
+
+        assert_eq!(
+            profile.shift_binding_for(CIRCLE, true),
+            Some(&Binding::Key { code: 0x20 })
+        );
+    }
+
+    #[test]
+    fn not_holding_the_shift_button_uses_the_primary_binding() {
+        use crate::types::pad::{CIRCLE, L1};
+
+        let profile = Profile::named("test")
+            .with_shift_button(L1)
+            .bind("Circle", Binding::Key { code: 0x1B })
+            .bind_shift("Circle", Binding::Key { code: 0x20 });
+
+        assert_eq!(
+            profile.shift_binding_for(CIRCLE, false),
+            Some(&Binding::Key { code: 0x1B })
+        );
+    }
+
+    #[test]
+    fn a_button_with_no_shift_binding_falls_back_to_the_primary_one_even_while_shifted() {
+        use crate::types::pad::{CROSS, L1};
+
+        let profile = Profile::named("test")
+            .with_shift_button(L1)
+            .bind("Cross", Binding::Key { code: 0x20 });
+
+        assert_eq!(
+            profile.shift_binding_for(CROSS, true),
+            Some(&Binding::Key { code: 0x20 })
+        );
+    }
+
+    #[test]
+    fn a_profile_carrying_shift_bindings_round_trips_through_json() {
+        use crate::types::pad::L1;
+
+        let profile = Profile::named("round trip")
+            .with_shift_button(L1)
+            .bind("Circle", Binding::Key { code: 0x1B })
+            .bind_shift("Circle", Binding::Key { code: 0x20 });
+
+        let text = serde_json::to_string(&profile).unwrap();
+        let back: Profile = serde_json::from_str(&text).unwrap();
+
+        assert_eq!(back, profile);
+    }
+
+    #[test]
+    fn a_profile_json_written_before_shift_existed_still_parses() {
+        let text = r#"{"name":"old","bindings":{}}"#;
+
+        let profile: Profile = serde_json::from_str(text).unwrap();
+
+        assert_eq!(profile.shift_button, None);
+        assert!(profile.shift_bindings.is_empty());
     }
 }
