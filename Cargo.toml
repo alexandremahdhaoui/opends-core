@@ -1,0 +1,13 @@
+[package]
+name = "opends-core"
+version = "0.1.0"
+edition = "2021"
+description = "DualSense and DualShock 4 report decoding and button mapping. No I/O."
+
+[dependencies]
+thiserror.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+
+[dev-dependencies]
+mockall.workspace = true

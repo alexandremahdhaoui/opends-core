@@ -1,0 +1,49 @@
+name: opends-core
+
+artifactStorePath: .forge/artifact-store.yaml
+
+build:
+  - name: license-headers
+    src: ./src
+    engine: go://rust-license-header
+    spec:
+      holder: "Alexandre Mahdhaoui"
+
+  - name: format-code
+    src: .
+    engine: go://generic-builder
+    spec:
+      command: cargo
+      args: ["fmt", "-p", "opends-core"]
+
+  - name: opends-core
+    src: ./src
+    engine: go://generic-builder
+    spec:
+      command: cargo
+      args: ["build", "-p", "opends-core", "--release"]
+
+test:
+  - name: lint
+    runner: go://generic-test-runner
+    spec:
+      command: cargo
+      args: ["clippy", "-p", "opends-core", "--all-targets", "--", "-D", "warnings"]
+
+  - name: format-check
+    runner: go://generic-test-runner
+    spec:
+      command: cargo
+      args: ["fmt", "-p", "opends-core", "--", "--check"]
+
+  - name: unit
+    runner: go://generic-test-runner
+    spec:
+      command: cargo
+      args: ["test", "-p", "opends-core"]
+
+  - name: purity
+    runner: go://generic-test-runner
+    spec:
+      command: sh
+      args: ["hack/purity.sh"]
